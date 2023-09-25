@@ -156,6 +156,7 @@ func (sec *Section) TryInsertSec(path string) (*Section, bool, error) {
 	return sec, suc, nil
 }
 
+
 func (sec *Section) TryInsert(path string, value interface{}) (bool, error) {
 	fmt.Printf("TryInsert: %v | %v\n", path, value)
 	switch value.(type) {
