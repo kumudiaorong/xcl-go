@@ -11,18 +11,20 @@ import (
 	"time"
 )
 
-
 type Xcl struct {
 	Section
 	file_abs_path   string
 	last_write_time time.Time
 }
 
-func newXclWithPath(abs_path string) *Xcl {
+func NewXcl(path string) (*Xcl, error) {
+	abs_path, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
 	var xcl = &Xcl{file_abs_path: abs_path}
-	xcl.kvs = make(map[string]interface{})
-	xcl.secs = make(map[string]*Section)
-	return xcl
+	xcl.Section = *newSec("", "")
+	return xcl,nil
 }
 
 var kvreg = regexp.MustCompile(`([^\s=]+)\s*=\s*(?:(s|b|i|u|f)')?([^']*)`)
@@ -33,7 +35,7 @@ func (xcl *Xcl) prase_file() error {
 		return err
 	}
 	defer ifs.Close()
-	buf:= bufio.NewScanner(ifs)
+	buf := bufio.NewScanner(ifs)
 	var sec *Section = &xcl.Section
 	for buf.Scan() {
 		line := strings.TrimSpace(buf.Text())
@@ -50,7 +52,7 @@ func (xcl *Xcl) prase_file() error {
 			sec.prase_kv(line)
 		}
 	}
-	if buf.Err()!=nil{
+	if buf.Err() != nil {
 		return buf.Err()
 	}
 	return nil
