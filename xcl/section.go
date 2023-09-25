@@ -16,6 +16,19 @@ type Section struct {
 	update_flag bool
 }
 
+func newSec(path string, name string) *Section {
+	sec := &Section{}
+	if path == "" {
+		sec.full_name = name
+	} else {
+		sec.full_name = path + name
+	}
+	sec.name = name
+	sec.kvs = make(map[string]interface{})
+	sec.secs = make(map[string]*Section)
+	sec.update_flag = false
+	return sec
+}
 func (sec *Section) SetName(name string) {
 	sec.name = name
 	sec.update_flag = false
@@ -113,32 +126,25 @@ func (sec *Section) prase_kv(line string) bool {
 
 var secreg = regexp.MustCompile(`([^\[\]']+)(?:'([^\[\]']+))*`)
 
-func (sec *Section) tryInsertSec(names []string) (*Section, bool) {
-	fmt.Printf("tryInsertSec: %v\n", names)
-	var new_index = 0
-	for index, match := range names {
-		sub, ok := sec.secs[match]
-		if !ok {
-			new_index = index + 1
-			break
-		}
-		sec = sub
+func (sec *Section) insertSec(name_sub []string) *Section {
+	fmt.Printf("insertSec: %v\n", name_sub)
+	new_sec := newSec(sec.full_name, name_sub[0])
+	sec.secs[name_sub[0]] = new_sec
+	if len(name_sub) == 1 {
+		return new_sec
 	}
-	if new_index > 0 {
-		new_index--
-		for _, match := range names[new_index:] {
-			var full_name = match
-			if sec.full_name != "" {
-				full_name = sec.full_name + "'" + full_name
-			}
-			sub := &Section{kvs: make(map[string]interface{}), secs: make(map[string]*Section), name: match, full_name: full_name}
-			sec.secs[match] = sub
-			sec = sub
-		}
-		new_index++
-	}
-	return sec, new_index > 0
+	return new_sec.insertSec(strings.SplitN(name_sub[1], "'", 1))
 }
+func (sec *Section) tryInsertSec(full_name string) (*Section, bool) {
+	fmt.Printf("tryInsertSec: %v\n", full_name)
+	names := strings.SplitN(full_name, "'", 1)
+	sub, ok := sec.secs[names[0]]
+	if !ok {
+		return sec.insertSec(names), true
+	}
+	return sub.tryInsertSec(names[1])
+}
+
 func (sec *Section) TryInsertSec(path string) (*Section, bool, error) {
 	if len(path) == 0 {
 		return sec, true, nil
@@ -146,8 +152,7 @@ func (sec *Section) TryInsertSec(path string) (*Section, bool, error) {
 	if !secreg.MatchString(path) {
 		return nil, false, errors.New("wrong format")
 	}
-	var names = strings.Split(path, "'")
-	sec, suc := sec.tryInsertSec(names)
+	sec, suc := sec.tryInsertSec(path)
 	return sec, suc, nil
 }
 
@@ -165,15 +170,13 @@ func (sec *Section) TryInsert(path string, value interface{}) (bool, error) {
 	if !secreg.MatchString(path) {
 		return false, errors.New("wrong format")
 	}
-	var names = strings.Split(path, "'")
-	var l = len(names)
-	if l > 1 {
-		sec, _ = sec.tryInsertSec(names[:l-1])
+	idx := strings.LastIndex(path, "'")
+	if idx != -1 {
+		sec, _ = sec.tryInsertSec(path[:idx])
 	}
-	_, ok := sec.kvs[names[l-1]]
+	_, ok := sec.kvs[path[idx+1:]]
 	if !ok {
-		sec.kvs[names[l-1]] = value
+		sec.kvs[path[idx+1:]] = value
 	}
 	return !ok, nil
 }
-
