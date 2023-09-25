@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"kmdr/xcl"
+	"k0e.top/xcl"
 )
 
 func main() {
