@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+
+	// "io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -23,8 +25,8 @@ func NewXcl(path string) (*Xcl, error) {
 		return nil, err
 	}
 	var xcl = &Xcl{file_abs_path: abs_path}
-	xcl.Section = *newSec("", "")
-	return xcl,nil
+	xcl.Section = *NewSec("", "")
+	return xcl, nil
 }
 
 var kvreg = regexp.MustCompile(`([^\s=]+)\s*=\s*(?:(s|b|i|u|f)')?([^']*)`)
@@ -49,7 +51,12 @@ func (xcl *Xcl) prase_file() error {
 				continue
 			}
 		} else {
-			sec.prase_kv(line)
+			k, v, err := prase_kv(line)
+			if err != nil {
+
+			} else {
+				sec.kvs[k] = v
+			}
 		}
 	}
 	if buf.Err() != nil {

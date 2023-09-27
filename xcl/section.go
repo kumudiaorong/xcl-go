@@ -3,9 +3,11 @@ package xcl
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
+	// "unsafe"
 )
 
 type Section struct {
@@ -16,12 +18,12 @@ type Section struct {
 	update_flag bool
 }
 
-func newSec(path string, name string) *Section {
+func NewSec(path string, name string) *Section {
 	sec := &Section{}
 	if path == "" {
 		sec.full_name = name
 	} else {
-		sec.full_name = path + name
+		sec.full_name = path + "'" + name
 	}
 	sec.name = name
 	sec.kvs = make(map[string]interface{})
@@ -29,13 +31,14 @@ func newSec(path string, name string) *Section {
 	sec.update_flag = false
 	return sec
 }
-func (sec *Section) SetName(name string) {
-	sec.name = name
-	sec.update_flag = false
-}
 
 func (sec *Section) Name() string {
 	return sec.name
+}
+
+func (sec *Section) SetName(name string) {
+	sec.name = name
+	sec.update_flag = false
 }
 
 func (sec *Section) String() string {
@@ -90,59 +93,26 @@ func (sec *Section) NeedUpdate() bool {
 	return false
 }
 
-func (sec *Section) prase_kv(line string) bool {
-	var matches = kvreg.FindStringSubmatch(line)
-	if matches[0] != line {
-		return false
-	}
-	var value interface{}
-	if len(matches) == 4 {
-		switch matches[2] {
-		case "s":
-			value = matches[3]
-		case "b":
-			value = matches[3] == "true"
-		case "i":
-			if i, err := strconv.Atoi(matches[3]); err == nil {
-				value = i
-			}
-		case "u":
-			if i, err := strconv.Atoi(matches[3]); err == nil {
-				value = uint(i)
-			}
-		case "f":
-			if f, err := strconv.ParseFloat(matches[3], 32); err == nil {
-				value = float64(f)
-			}
-		}
-	} else if len(matches) == 3 {
-		value = matches[2]
-	} else {
-		value = ""
-	}
-	sec.kvs[matches[1]] = value
-	return true
-}
-
 var secreg = regexp.MustCompile(`([^\[\]']+)(?:'([^\[\]']+))*`)
 
 func (sec *Section) insertSec(name_sub []string) *Section {
-	fmt.Printf("insertSec: %v\n", name_sub)
-	new_sec := newSec(sec.full_name, name_sub[0])
+	new_sec := NewSec(sec.full_name, name_sub[0])
 	sec.secs[name_sub[0]] = new_sec
-	if len(name_sub) == 1 {
-		return new_sec
+	if len(name_sub) > 1 {
+		return new_sec.insertSec(strings.SplitN(name_sub[1], "'", 1))
 	}
-	return new_sec.insertSec(strings.SplitN(name_sub[1], "'", 1))
+	return new_sec
 }
 func (sec *Section) tryInsertSec(full_name string) (*Section, bool) {
-	fmt.Printf("tryInsertSec: %v\n", full_name)
 	names := strings.SplitN(full_name, "'", 1)
 	sub, ok := sec.secs[names[0]]
 	if !ok {
 		return sec.insertSec(names), true
 	}
-	return sub.tryInsertSec(names[1])
+	if len(names) > 1 {
+		return sub.tryInsertSec(names[1])
+	}
+	return sub, false
 }
 
 func (sec *Section) TryInsertSec(path string) (*Section, bool, error) {
@@ -155,19 +125,27 @@ func (sec *Section) TryInsertSec(path string) (*Section, bool, error) {
 	sec, suc := sec.tryInsertSec(path)
 	return sec, suc, nil
 }
-
-
-func (sec *Section) TryInsert(path string, value interface{}) (bool, error) {
-	fmt.Printf("TryInsert: %v | %v\n", path, value)
-	switch value.(type) {
-	case string:
-	case bool:
-	case int:
-	case uint:
-	case float64:
-	default:
-		return false, errors.New("wrong type")
+func (sec *Section) tryInsertValue(key string, value interface{}) bool {
+	_, ok := sec.kvs[key]
+	if !ok {
+		sec.kvs[key] = value
 	}
+	return !ok
+}
+func (sec *Section) tryInsertStruct(value interface{}) bool { //struct field must be public
+	t := reflect.TypeOf(value)
+	v := reflect.ValueOf(value)
+	new := false
+	for i := 0; i < v.NumField(); i++ {
+		fv := v.Field(i)
+		fk := fv.Type().Kind()
+		if fv.CanInterface() && (fk == reflect.String || fk == reflect.Bool || fk == reflect.Int || fk == reflect.Uint || fk == reflect.Float64) {
+			new = sec.tryInsertValue(t.Field(i).Name, fv.Interface()) || new
+		}
+	}
+	return new
+}
+func (sec *Section) TryInsert(path string, value interface{}) (bool, error) {
 	if !secreg.MatchString(path) {
 		return false, errors.New("wrong format")
 	}
@@ -175,9 +153,82 @@ func (sec *Section) TryInsert(path string, value interface{}) (bool, error) {
 	if idx != -1 {
 		sec, _ = sec.tryInsertSec(path[:idx])
 	}
-	_, ok := sec.kvs[path[idx+1:]]
-	if !ok {
-		sec.kvs[path[idx+1:]] = value
+	k := reflect.TypeOf(value).Kind()
+	if k == reflect.String || k == reflect.Bool || k == reflect.Int || k == reflect.Uint || k == reflect.Float64 {
+		return sec.tryInsertValue(path[idx+1:], value), nil
+	} else if k == reflect.Struct {
+		var new bool
+		sec, new = sec.tryInsertSec(path[idx+1:])
+		return new || sec.tryInsertStruct(value), nil
 	}
-	return !ok, nil
+	return false, nil
+}
+func (sec *Section) Find(path string) (interface{}, error) {
+	if len(path) == 0 {
+		return nil, errors.New("Empty Path")
+	}
+	if !secreg.MatchString(path) {
+		return nil, errors.New("wrong format")
+	}
+	names := strings.SplitN(path, "'", 1)
+	if len(names) > 1 {
+		sub, ok := sec.secs[names[0]]
+		if !ok {
+			return nil, nil
+		} else {
+			return sub.Find(names[1])
+		}
+	} else {
+		v, ok := sec.kvs[names[0]]
+		if !ok {
+			return nil, nil
+		} else {
+			return v, nil
+		}
+	}
+}
+func (sec *Section) decode(e reflect.Value) error {
+	t := e.Type()
+	for i := 0; i < e.NumField(); i++ {
+		ef := e.Field(i)
+		efk := ef.Kind()
+		// ef.IsValid()
+		tf := t.Field(i)
+		for efk == reflect.Ptr {
+			if ef.IsNil() && ef.CanAddr() {
+				ef.Set(reflect.New(ef.Type().Elem()))
+			}
+			ef = ef.Elem()
+			efk = ef.Kind()
+		}
+		if !ef.IsValid() {
+			return errors.New("Wrong Value")
+		}
+		if efk == reflect.Struct {
+			sub, ok := sec.secs[tf.Name]
+			if !ok {
+
+			} else {
+				sub.decode(ef)
+			}
+		} else if efk == reflect.String || efk == reflect.Bool || efk == reflect.Int || efk == reflect.Uint || efk == reflect.Float64 {
+			v, ok := sec.kvs[tf.Name]
+			if !ok {
+			} else {
+				ef.Set(reflect.ValueOf(v))
+			}
+		}
+	}
+	return nil
+}
+func (sec *Section) Decode(s interface{}) error {
+	v := reflect.ValueOf(s)
+	if v.Kind() != reflect.Ptr {
+		return errors.New("Not A Pointer")
+	}
+	e := v.Elem()
+	if e.Kind() != reflect.Struct {
+		return errors.New(fmt.Sprintf("Not A Struct Pointer, Is A %+v", e.Type().Kind()))
+	}
+	return sec.decode(e)
 }
