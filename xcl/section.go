@@ -13,9 +13,8 @@ import (
 type Section struct {
 	full_name   string
 	name        string
-	kvs         map[string]interface{}
+	kvs         map[string]any
 	secs        map[string]*Section
-	update_flag bool
 }
 
 func NewSec(path string, name string) *Section {
@@ -26,9 +25,8 @@ func NewSec(path string, name string) *Section {
 		sec.full_name = path + "'" + name
 	}
 	sec.name = name
-	sec.kvs = make(map[string]interface{})
+	sec.kvs = make(map[string]any)
 	sec.secs = make(map[string]*Section)
-	sec.update_flag = false
 	return sec
 }
 
@@ -38,7 +36,6 @@ func (sec *Section) Name() string {
 
 func (sec *Section) SetName(name string) {
 	sec.name = name
-	sec.update_flag = false
 }
 
 func (sec *Section) String() string {
@@ -68,7 +65,6 @@ func (sec *Section) String() string {
 	for _, value := range sec.secs {
 		sb.WriteString(value.String())
 	}
-	sec.update_flag = true
 	return sb.String()
 }
 
@@ -76,23 +72,9 @@ func (sec *Section) Clear() {
 	if len(sec.kvs) == 0 && len(sec.secs) == 0 {
 		return
 	}
-	sec.kvs = make(map[string]interface{})
+	sec.kvs = make(map[string]any)
 	sec.secs = make(map[string]*Section)
-	sec.update_flag = false
 }
-
-func (sec *Section) NeedUpdate() bool {
-	if sec.update_flag {
-		return true
-	}
-	for _, value := range sec.secs {
-		if value.NeedUpdate() {
-			return true
-		}
-	}
-	return false
-}
-
 var secreg = regexp.MustCompile(`([^\[\]']+)(?:'([^\[\]']+))*`)
 
 func (sec *Section) insertSec(name_sub []string) *Section {
@@ -125,27 +107,15 @@ func (sec *Section) TryInsertSec(path string) (*Section, bool, error) {
 	sec, suc := sec.tryInsertSec(path)
 	return sec, suc, nil
 }
-func (sec *Section) tryInsertValue(key string, value interface{}) bool {
+func (sec *Section) tryInsertValue(key string, value any) bool {
 	_, ok := sec.kvs[key]
 	if !ok {
 		sec.kvs[key] = value
 	}
 	return !ok
 }
-func (sec *Section) tryInsertStruct(value interface{}) bool { //struct field must be public
-	t := reflect.TypeOf(value)
-	v := reflect.ValueOf(value)
-	new := false
-	for i := 0; i < v.NumField(); i++ {
-		fv := v.Field(i)
-		fk := fv.Type().Kind()
-		if fv.CanInterface() && (fk == reflect.String || fk == reflect.Bool || fk == reflect.Int || fk == reflect.Uint || fk == reflect.Float64) {
-			new = sec.tryInsertValue(t.Field(i).Name, fv.Interface()) || new
-		}
-	}
-	return new
-}
-func (sec *Section) TryInsert(path string, value interface{}) (bool, error) {
+
+func (sec *Section) TryInsert(path string, value any) (bool, error) {
 	if !secreg.MatchString(path) {
 		return false, errors.New("wrong format")
 	}
@@ -156,14 +126,10 @@ func (sec *Section) TryInsert(path string, value interface{}) (bool, error) {
 	k := reflect.TypeOf(value).Kind()
 	if k == reflect.String || k == reflect.Bool || k == reflect.Int || k == reflect.Uint || k == reflect.Float64 {
 		return sec.tryInsertValue(path[idx+1:], value), nil
-	} else if k == reflect.Struct {
-		var new bool
-		sec, new = sec.tryInsertSec(path[idx+1:])
-		return new || sec.tryInsertStruct(value), nil
 	}
 	return false, nil
 }
-func (sec *Section) Find(path string) (interface{}, error) {
+func (sec *Section) Find(path string) (any, error) {
 	if len(path) == 0 {
 		return nil, errors.New("Empty Path")
 	}
@@ -221,7 +187,7 @@ func (sec *Section) decode(e reflect.Value) error {
 	}
 	return nil
 }
-func (sec *Section) Decode(s interface{}) error {
+func (sec *Section) Decode(s any) error {
 	v := reflect.ValueOf(s)
 	if v.Kind() != reflect.Ptr {
 		return errors.New("Not A Pointer")
@@ -240,4 +206,46 @@ func (sec *Section) Decode(s interface{}) error {
 		return errors.New(fmt.Sprintf("Not A Struct Pointer, Is A %+v", v.Type().Kind()))
 	}
 	return sec.decode(v)
+}
+func (sec *Section) encode(e reflect.Value) error {
+	t := e.Type()
+	for i := 0; i < e.NumField(); i++ {
+		ef := e.Field(i)
+		efk := ef.Kind()
+		// ef.IsValid()
+		tf := t.Field(i)
+		for efk == reflect.Ptr {
+			if ef.IsNil() && ef.CanAddr() {
+				ef.Set(reflect.New(ef.Type().Elem()))
+			}
+			ef = ef.Elem()
+			efk = ef.Kind()
+		}
+		if !ef.IsValid() {
+			return errors.New("Wrong Value")
+		}
+		if efk == reflect.Struct {
+			sub, _ := sec.tryInsertSec(tf.Name)
+			sub.encode(ef)
+		} else if efk == reflect.String || efk == reflect.Bool || efk == reflect.Int || efk == reflect.Uint || efk == reflect.Float64 {
+			// sec.kvs[tf.Name]
+			if ef.CanInterface() {
+				sec.kvs[tf.Name] = ef.Interface()
+			}
+		}
+	}
+	return nil
+}
+func (sec *Section) Encode(s any) error {
+	v := reflect.ValueOf(s)
+	for v.Kind() == reflect.Ptr {
+		if v.IsNil() && v.CanAddr() {
+			v.Set(reflect.New(v.Type().Elem()))
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return errors.New(fmt.Sprintf("Not A Struct Pointer, Is A %+v", v.Type().Kind()))
+	}
+	return sec.encode(v)
 }

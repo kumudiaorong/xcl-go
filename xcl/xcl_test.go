@@ -6,9 +6,7 @@ import (
 	"testing"
 )
 
-func TestNewXcl(t *testing.T) {
-}
-func assert(t *testing.T, stat interface{}, estr string) {
+func assert(t *testing.T, stat any, estr string) {
 	T := reflect.TypeOf(stat)
 	if T.Kind() == reflect.Bool && !stat.(bool) {
 		t.Fatalf("Assert : %s", estr)
@@ -21,7 +19,6 @@ func TestNewSec(t *testing.T) {
 	assert(t, sec.kvs != nil, "New Sec Wrong Field kvs")
 	assert(t, sec.secs != nil, "New Sec Wrong Field secs")
 	assert(t, sec.name == "name", "New Sec Wrong Field name")
-	assert(t, !sec.update_flag, "New Sec Wrong Field update_flag")
 }
 func TestSecName(t *testing.T) {
 	sec := NewSec("path", "name")
@@ -34,7 +31,7 @@ func TestSecSetName(t *testing.T) {
 }
 func TestSecTryInsertValue(t *testing.T) {
 	sec := NewSec("", "")
-	f := func(k string, v interface{}) {
+	f := func(k string, v any) {
 		assert(t, sec.tryInsertValue(k, v), `Sec TryInsertValue("key","str") Fail`)
 		assert(t, sec.kvs[k] == v, `Sec TryInsertValue("key","str") Insert Wrong Value`)
 		assert(t, !sec.tryInsertValue(k, v), `Sec TryInsertValue("key","str") Should not Success`)
@@ -68,24 +65,6 @@ func TestSecTryInsert(t *testing.T) {
 	v, ok = sub.kvs["sub"]
 	assert(t, ok, `Sec TryInsert("key", "str"), Fail`)
 	assert(t, v.(string) == "str", `Sec TryInsert("key", "str"), Wrong Value`)
-}
-func TestSecTryInsertStruct(t *testing.T) {
-	sec := NewSec("", "")
-	type T struct {
-		Key     string
-		Bool    bool
-		Int     int
-		Uint    uint
-		Float64 float64
-	}
-	assert(t, sec.tryInsertStruct(T{Key: "value", Bool: true, Int: 1, Uint: 1, Float64: 1}), `Sec TryInsertStruct(T{key: "value", bool: true, int: 1, uint: 1, float64: 1}) Fail`)
-	assert(t, sec.kvs["Key"] == "value", `Sec TryInsertStruct(...) Insert Wrong Key`)
-	assert(t, sec.kvs["Bool"].(bool) == true, `Sec TryInsertStruct(...) Insert Wrong Bool`)
-	assert(t, sec.kvs["Int"].(int) == 1, `Sec TryInsertStruct(...) Insert Wrong Int`)
-	assert(t, sec.kvs["Uint"].(uint) == 1, `Sec TryInsertStruct(...) Insert Wrong Uint`)
-	assert(t, sec.kvs["Float64"].(float64) == 1, `Sec TryInsertStruct(...) Insert Wrong Float64`)
-	// xcl := NewSec("", "")
-	// xcl.tryInsertStruct()
 }
 func TestSecDecode(t *testing.T) {
 	sec := NewSec("", "")

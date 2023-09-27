@@ -2,17 +2,21 @@ package xcl
 
 import (
 	"bufio"
-	"io"
-	"strings"
 	"errors"
+	"io"
+	"regexp"
 	"strconv"
+	"strings"
 )
-func praseKV(line string) (string, interface{}, error) {
+
+var kvreg = regexp.MustCompile(`([^\s=]+)\s*=\s*(?:(s|b|i|u|f)')?([^']*)`)
+
+func praseKV(line string) (string, any, error) {
 	var matches = kvreg.FindStringSubmatch(line)
 	if matches[0] != line {
 		return "", nil, errors.New("Wrong Format Key-Value Pair")
 	}
-	var value interface{}
+	var value any
 	if len(matches) == 4 {
 		var err error = nil
 		switch matches[2] {
@@ -76,4 +80,7 @@ func Decode(i io.Reader) (*Section, error) {
 		return nil, buf.Err()
 	}
 	return sec, nil
+}
+func Encode(sec *Section) string {
+	return sec.String()
 }
