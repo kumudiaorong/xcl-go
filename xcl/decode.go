@@ -1,22 +1,56 @@
 package xcl
 
 import (
-	// "errors"
-	// "reflect"
 	"bufio"
 	"io"
 	"strings"
+	"errors"
+	"strconv"
 )
-
-type Decoder struct {
-	sec *Section
+func praseKV(line string) (string, interface{}, error) {
+	var matches = kvreg.FindStringSubmatch(line)
+	if matches[0] != line {
+		return "", nil, errors.New("Wrong Format Key-Value Pair")
+	}
+	var value interface{}
+	if len(matches) == 4 {
+		var err error = nil
+		switch matches[2] {
+		case "s":
+			value = matches[3]
+		case "b":
+			value = matches[3] == "true"
+		case "i":
+			var i int
+			if i, err = strconv.Atoi(matches[3]); err == nil {
+				value = i
+			}
+		case "u":
+			var i int
+			if i, err = strconv.Atoi(matches[3]); err == nil {
+				value = uint(i)
+			}
+		case "f":
+			var f float64
+			if f, err = strconv.ParseFloat(matches[3], 32); err == nil {
+				value = float64(f)
+			}
+		}
+		if err != nil {
+			return "", nil, err
+		}
+	} else if len(matches) == 3 {
+		value = matches[2]
+	} else {
+		value = ""
+	}
+	return matches[1], value, nil
 }
 
-func NewDecoder(i io.Reader) (*Decoder, error) {
+func Decode(i io.Reader) (*Section, error) {
 	buf := bufio.NewScanner(i)
 	var sec *Section = NewSec("", "")
 	var sub = sec
-	var err error
 	for buf.Scan() {
 		line := strings.TrimSpace(buf.Text())
 		if line == "" {
@@ -24,12 +58,13 @@ func NewDecoder(i io.Reader) (*Decoder, error) {
 		}
 		var l = len(line)
 		if line[0] == '[' && line[l-1] == ']' {
-			sub, _, err = sec.TryInsertSec(line[1 : l-1])
-			if err != nil {
-				continue
+			path := line[1 : l-1]
+			if !secreg.MatchString(path) {
+				// return nil, false, errors.New("wrong format")
 			}
+			sub = sec.insertSec(strings.SplitN(path, "'", 1))
 		} else {
-			k, v, err := prase_kv(line)
+			k, v, err := praseKV(line)
 			if err != nil {
 
 			} else {
@@ -40,17 +75,5 @@ func NewDecoder(i io.Reader) (*Decoder, error) {
 	if buf.Err() != nil {
 		return nil, buf.Err()
 	}
-	return &Decoder{sec: sec}, nil
-}
-
-func (decoder *Decoder) Decode(s interface{}) error {
-	return decoder.sec.Decode(s)
-	// for i := 0; i < v.NumField(); i++ {
-	// f := e.Field(i)
-	// tf := t.Field(i)
-	// sec.f tf.Name
-	// if tf.Name == {
-
-	// }
-	// }
+	return sec, nil
 }

@@ -226,9 +226,18 @@ func (sec *Section) Decode(s interface{}) error {
 	if v.Kind() != reflect.Ptr {
 		return errors.New("Not A Pointer")
 	}
-	e := v.Elem()
-	if e.Kind() != reflect.Struct {
-		return errors.New(fmt.Sprintf("Not A Struct Pointer, Is A %+v", e.Type().Kind()))
+	if v.IsNil() {
+		return errors.New("Nil Value")
 	}
-	return sec.decode(e)
+	v = v.Elem()
+	for v.Kind() == reflect.Ptr {
+		if v.IsNil() && v.CanAddr() {
+			v.Set(reflect.New(v.Type().Elem()))
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return errors.New(fmt.Sprintf("Not A Struct Pointer, Is A %+v", v.Type().Kind()))
+	}
+	return sec.decode(v)
 }
