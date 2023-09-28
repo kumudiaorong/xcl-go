@@ -11,10 +11,11 @@ import (
 )
 
 type Section struct {
-	full_name   string
-	name        string
-	kvs         map[string]any
-	secs        map[string]*Section
+	full_name     string
+	name          string
+	kvs           map[string]any
+	sub_section   map[string]*Section
+	section_array map[string]*[]*Section
 }
 
 func NewSec(path string, name string) *Section {
@@ -26,7 +27,8 @@ func NewSec(path string, name string) *Section {
 	}
 	sec.name = name
 	sec.kvs = make(map[string]any)
-	sec.secs = make(map[string]*Section)
+	sec.sub_section = make(map[string]*Section)
+	sec.section_array = make(map[string]*[]*Section)
 	return sec
 }
 
@@ -62,24 +64,25 @@ func (sec *Section) String() string {
 		sb.WriteString("\n")
 	}
 	sb.WriteString("\n")
-	for _, value := range sec.secs {
+	for _, value := range sec.sub_section {
 		sb.WriteString(value.String())
 	}
 	return sb.String()
 }
 
 func (sec *Section) Clear() {
-	if len(sec.kvs) == 0 && len(sec.secs) == 0 {
+	if len(sec.kvs) == 0 && len(sec.sub_section) == 0 {
 		return
 	}
 	sec.kvs = make(map[string]any)
-	sec.secs = make(map[string]*Section)
+	sec.sub_section = make(map[string]*Section)
 }
+
 var secreg = regexp.MustCompile(`([^\[\]']+)(?:'([^\[\]']+))*`)
 
 func (sec *Section) insertSec(name_sub []string) *Section {
 	new_sec := NewSec(sec.full_name, name_sub[0])
-	sec.secs[name_sub[0]] = new_sec
+	sec.sub_section[name_sub[0]] = new_sec
 	if len(name_sub) > 1 {
 		return new_sec.insertSec(strings.SplitN(name_sub[1], "'", 1))
 	}
@@ -87,7 +90,7 @@ func (sec *Section) insertSec(name_sub []string) *Section {
 }
 func (sec *Section) tryInsertSec(full_name string) (*Section, bool) {
 	names := strings.SplitN(full_name, "'", 1)
-	sub, ok := sec.secs[names[0]]
+	sub, ok := sec.sub_section[names[0]]
 	if !ok {
 		return sec.insertSec(names), true
 	}
@@ -138,7 +141,7 @@ func (sec *Section) Find(path string) (any, error) {
 	}
 	names := strings.SplitN(path, "'", 1)
 	if len(names) > 1 {
-		sub, ok := sec.secs[names[0]]
+		sub, ok := sec.sub_section[names[0]]
 		if !ok {
 			return nil, nil
 		} else {
@@ -153,6 +156,16 @@ func (sec *Section) Find(path string) (any, error) {
 		}
 	}
 }
+func decodePtr(ptr *reflect.Value) {
+	k := ptr.Kind()
+	for k == reflect.Ptr {
+		if ptr.IsNil() && ptr.CanAddr() {
+			ptr.Set(reflect.New(ptr.Type().Elem()))
+		}
+		*ptr = ptr.Elem()
+		k = ptr.Kind()
+	}
+}
 func (sec *Section) decode(e reflect.Value) error {
 	t := e.Type()
 	for i := 0; i < e.NumField(); i++ {
@@ -160,18 +173,12 @@ func (sec *Section) decode(e reflect.Value) error {
 		efk := ef.Kind()
 		// ef.IsValid()
 		tf := t.Field(i)
-		for efk == reflect.Ptr {
-			if ef.IsNil() && ef.CanAddr() {
-				ef.Set(reflect.New(ef.Type().Elem()))
-			}
-			ef = ef.Elem()
-			efk = ef.Kind()
-		}
+		decodePtr(&ef)
 		if !ef.IsValid() {
 			return errors.New("Wrong Value")
 		}
 		if efk == reflect.Struct {
-			sub, ok := sec.secs[tf.Name]
+			sub, ok := sec.sub_section[tf.Name]
 			if !ok {
 
 			} else {
@@ -214,13 +221,7 @@ func (sec *Section) encode(e reflect.Value) error {
 		efk := ef.Kind()
 		// ef.IsValid()
 		tf := t.Field(i)
-		for efk == reflect.Ptr {
-			if ef.IsNil() && ef.CanAddr() {
-				ef.Set(reflect.New(ef.Type().Elem()))
-			}
-			ef = ef.Elem()
-			efk = ef.Kind()
-		}
+		decodePtr(&ef)
 		if !ef.IsValid() {
 			return errors.New("Wrong Value")
 		}
@@ -232,6 +233,19 @@ func (sec *Section) encode(e reflect.Value) error {
 			if ef.CanInterface() {
 				sec.kvs[tf.Name] = ef.Interface()
 			}
+		} else if efk == reflect.Slice {
+			efi := ef.Index(i)
+			decodePtr(&efi)
+			efk := efi.Kind()
+			var f func(reflect.Value)
+			if efk == reflect.Struct {
+				sub, _ := sec.tryInsertSec(tf.Name)
+				sub.encode(efi)
+			}
+			// if efk
+			// for i := 0; i < ef.Len(); i++ {
+			// 	ef.Index(i)
+			// }
 		}
 	}
 	return nil

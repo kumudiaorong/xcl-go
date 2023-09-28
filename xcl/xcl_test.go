@@ -17,7 +17,7 @@ func TestNewSec(t *testing.T) {
 	sec := NewSec("path", "name")
 	assert(t, sec.full_name == "path'name", "New Sec Wrong Field full_name")
 	assert(t, sec.kvs != nil, "New Sec Wrong Field kvs")
-	assert(t, sec.secs != nil, "New Sec Wrong Field secs")
+	assert(t, sec.sub_section != nil, "New Sec Wrong Field secs")
 	assert(t, sec.name == "name", "New Sec Wrong Field name")
 }
 func TestSecName(t *testing.T) {
@@ -60,7 +60,7 @@ func TestSecTryInsert(t *testing.T) {
 	suc, err = sec.TryInsert("key'sub", "str")
 	assert(t, err == nil, fmt.Sprintf(`Sec TryInsert("key'sub", "str") Unexpect Error %v`, err))
 	assert(t, suc, `Sec TryInsert("key'sub", "str") Fail`)
-	sub, ok := sec.secs["key"]
+	sub, ok := sec.sub_section["key"]
 	assert(t, ok, `Sec TryInsert("key'sub", "str") Fail`)
 	v, ok = sub.kvs["sub"]
 	assert(t, ok, `Sec TryInsert("key", "str"), Fail`)
